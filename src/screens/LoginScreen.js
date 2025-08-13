@@ -4,70 +4,146 @@ import {
   TouchableOpacity,
   Text,
   TextInput,
-  Button,
   StyleSheet,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { useTheme } from '../context/ThemeContext';
+import { useAuth, useTheme } from '../store';
+import { themes } from '../config/theme';
+import { commonStyles } from '../config/styles';
+import ThemeButton from '../components/ThemeButton';
+import ForgotPasswordLink from '../components/ForgotPasswordLink';
 
 export default function LoginScreen({ navigation }) {
+  const { login, isLoading, error, clearError } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    alert(`Login dengan: ${email} / ${password}`);
+  // Get current theme styles
+  const currentTheme = themes[theme];
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    try {
+      clearError(); // Clear any previous errors
+      await login(email.trim(), password);
+      Alert.alert('Success', 'Login successful!');
+      // Navigation to main app would happen here
+    } catch (error) {
+      Alert.alert('Login Failed', error.message || 'Please try again');
+    }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <Text style={[styles.title, { color: theme.text }]}>Login</Text>
+    <View
+      style={[
+        commonStyles.authContainer,
+        { backgroundColor: currentTheme.background },
+      ]}
+    >
+      <Text style={[commonStyles.authTitle, { color: currentTheme.text }]}>
+        Welcome Back
+      </Text>
 
-      <TextInput
-        placeholder="Email"
-        placeholderTextColor="#888"
-        value={email}
-        onChangeText={setEmail}
-        style={[
-          styles.input,
-          { backgroundColor: theme.inputBackground, color: theme.inputText },
-        ]}
-      />
+      {error && (
+        <View style={[commonStyles.errorBadge, { marginBottom: 16 }]}>
+          <Text style={commonStyles.badgeText}>{error}</Text>
+        </View>
+      )}
 
-      <TextInput
-        placeholder="Password"
-        placeholderTextColor="#888"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        style={[
-          styles.input,
-          { backgroundColor: theme.inputBackground, color: theme.inputText },
-        ]}
-      />
-
-      <Button title="Login" onPress={handleLogin} color={theme.primary} />
-
-      <View>
-        <Text
-          style={[styles.linkText, { color: theme.text }]}
-          onPress={() => navigation.navigate('Register')}
-        >
-          Belum punya akun? Register
+      <View style={commonStyles.formGroup}>
+        <Text style={[commonStyles.label, { color: currentTheme.text }]}>
+          Email
         </Text>
-        <Text
-          style={[styles.linkText, { color: theme.text }]}
-          onPress={() => navigation.navigate('Register')}
-        >
-          Lupa password?
-        </Text>
-      </View>
-      <View>
-        <TouchableOpacity
-          style={[styles.circleButton, { top: 20, right: 10 }]}
-          title="Toggle Theme"
-          onPress={toggleTheme}
+        <TextInput
+          placeholder="Enter your email"
+          placeholderTextColor={currentTheme.textSecondary}
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          style={[
+            commonStyles.input,
+            {
+              backgroundColor: currentTheme.inputBackground,
+              color: currentTheme.inputText,
+              borderColor: currentTheme.inputBorder,
+            },
+          ]}
         />
       </View>
+
+      <View style={commonStyles.formGroup}>
+        <Text style={[commonStyles.label, { color: currentTheme.text }]}>
+          Password
+        </Text>
+        <TextInput
+          placeholder="Enter your password"
+          placeholderTextColor={currentTheme.textSecondary}
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+          style={[
+            commonStyles.input,
+            {
+              backgroundColor: currentTheme.inputBackground,
+              color: currentTheme.inputText,
+              borderColor: currentTheme.inputBorder,
+            },
+          ]}
+        />
+      </View>
+
+      <TouchableOpacity
+        style={[
+          commonStyles.buttonPrimary,
+          {
+            backgroundColor: currentTheme.primary,
+            opacity: isLoading ? 0.7 : 1,
+          },
+        ]}
+        onPress={handleLogin}
+        disabled={isLoading}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color={currentTheme.buttonText} />
+        ) : (
+          <Text
+            style={[
+              commonStyles.buttonText,
+              { color: currentTheme.buttonText },
+            ]}
+          >
+            Login
+          </Text>
+        )}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          commonStyles.buttonOutline,
+          { borderColor: currentTheme.primary, marginTop: 16 },
+        ]}
+        onPress={() => navigation.navigate('Register')}
+      >
+        <Text
+          style={[
+            commonStyles.buttonTextOutline,
+            { color: currentTheme.primary },
+          ]}
+        >
+          Create Account
+        </Text>
+      </TouchableOpacity>
+
+      <ForgotPasswordLink />
+
+      <ThemeButton size="medium" top={50} right={20} />
     </View>
   );
 }
