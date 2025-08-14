@@ -2,52 +2,45 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthStore, User } from './types';
+import axios from 'axios';
+import { config } from '../config/envConfig';
 
-// Mock API functions - replace with your actual API calls
-const mockLogin = async (email: string, password: string): Promise<{ user: User; token: string }> => {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
+const API_BASE_URL = config.baseURL;
 
-  // Mock validation
-  if (email === 'user@example.com' && password === 'password') {
-    return {
-      user: {
-        id: '1',
-        name: 'Blonde',
-        email: email,
-        avatar: 'https://via.placeholder.com/150',
-        createdAt: new Date().toISOString(),
-      },
-      token: 'tokenBoongan' + Date.now(),
-    };
-  } else {
-    throw new Error('Invalid email or password');
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.request.use(
+  (config) => {
+    const state = useAuthStore.getState();
+    if (state.token) {
+      config.headers.Authorization = `Bearer ${state.token}`;
+      config.headers.access_token = state.token;
+    } else {
+      // No token available
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-};
+);
 
-const mockRegister = async (name: string, email: string, password: string): Promise<{ user: User; token: string }> => {
-  await new Promise(resolve => setTimeout(resolve, 1200));
-
-  if (name.length < 2) {
-    throw new Error('Name must be at least 2 characters');
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    if (error.response?.status === 401) {
+      useAuthStore.getState().logout();
+    }
+    return Promise.reject(error);
   }
-  if (!email.includes('@')) {
-    throw new Error('Please enter a valid email');
-  }
-  if (password.length < 6) {
-    throw new Error('Password must be at least 6 characters');
-  }
-
-  return {
-    user: {
-      id: Date.now().toString(),
-      name: name,
-      email: email,
-      createdAt: new Date().toISOString(),
-    },
-    token: 'mock-jwt-token-' + Date.now(),
-  };
-};
+);
 
 export const useAuthStore = create<AuthStore>()(
   persist(
@@ -59,56 +52,94 @@ export const useAuthStore = create<AuthStore>()(
       isLoading: false,
       error: null,
 
-      // Actions
-      login: async (email: string, password: string) => {
+      login: async (emailOrUsername: string, password: string) => {
         set({ isLoading: true, error: null });
 
         try {
-          const { user, token } = await mockLogin(email, password);
+          const response = await api.post('/login', {
+            emailOrUsername,
+            password,
+          });
+
+          const { user, access_token } = response.data.data;
+
+          api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+          api.defaults.headers.common['access_token'] = access_token;
+
           set({
             user,
-            token,
+            token: access_token,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
-        } catch (error) {
+
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.message || error.message || 'Login failed';
           set({
-            error: error instanceof Error ? error.message : 'Login failed',
+            error: errorMessage,
             isLoading: false,
           });
-          throw error;
+          throw new Error(errorMessage);
         }
       },
 
-      register: async (name: string, email: string, password: string) => {
+      register: async (name: string, username: string, email: string, password: string, noHandphone: string) => {
         set({ isLoading: true, error: null });
 
         try {
-          const { user, token } = await mockRegister(name, email, password);
+          const response = await api.post('/register', {
+            name,
+            username,
+            email,
+            password,
+            noHandphone,
+          });
+
+          const { user, access_token } = response.data.data;
+
+          api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+          api.defaults.headers.common['access_token'] = access_token;
+
           set({
             user,
-            token,
+            token: access_token,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
-        } catch (error) {
+
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.message || error.message || 'Registration failed';
           set({
-            error: error instanceof Error ? error.message : 'Registration failed',
+            error: errorMessage,
             isLoading: false,
           });
-          throw error;
+          throw new Error(errorMessage);
         }
       },
 
-      logout: () => {
-        set({
-          user: null,
-          token: null,
-          isAuthenticated: false,
-          error: null,
-        });
+      logout: async () => {
+        try {
+          const { token } = get();
+          if (token) {
+            await api.post('/logout');
+          }
+        } catch (error) {
+          // No return apa2
+        } finally {
+          // bersihin token
+          delete api.defaults.headers.common['Authorization'];
+          delete api.defaults.headers.common['access_token'];
+
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            error: null,
+          });
+
+        }
       },
 
       clearError: () => {
@@ -122,12 +153,23 @@ export const useAuthStore = create<AuthStore>()(
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      // Only persist essential data
       partialize: (state) => ({
         user: state.user,
         token: state.token,
         isAuthenticated: state.isAuthenticated,
       }),
+
+      // refresh token fitur
+      onRehydrateStorage: () => (state) => {
+        if (state?.token) {
+          api.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+          api.defaults.headers.common['access_token'] = state.token;
+        } else {
+
+        }
+      },
     }
   )
 );
+
+export { api };

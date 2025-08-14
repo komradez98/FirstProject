@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   View,
+  ScrollView,
   TouchableOpacity,
   Text,
   TextInput,
@@ -8,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
@@ -18,34 +20,83 @@ export default function RegisterScreen({ navigation }) {
   const { register, isLoading, error, clearError } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [noHandphone, setNoHandphone] = useState('');
 
   // Get current theme styles
   const currentTheme = themes[theme];
 
   const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    if (!name.trim() || !username.trim() || !email.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    // Validate username format (alphanumeric only)
+    if (!/^[a-zA-Z0-9]+$/.test(username.trim())) {
+      Alert.alert('Error', 'Username can only contain letters and numbers');
+      return;
+    }
+
+    // Validate username length
+    if (username.trim().length < 3 || username.trim().length > 50) {
+      Alert.alert('Error', 'Username must be between 3-50 characters');
+      return;
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters long');
+      return;
+    }
+
+    // Validate phone number if provided
+    if (noHandphone.trim() && (noHandphone.trim().length < 10 || noHandphone.trim().length > 15)) {
+      Alert.alert('Error', 'Phone number must be between 10-15 characters');
       return;
     }
 
     try {
+      console.log('📱 Starting registration process...');
       clearError(); // Clear any previous errors
-      await register(name.trim(), email.trim(), password);
-      Alert.alert('Success', 'Account created successfully!');
-      // Navigation to main app would happen here
+      await register(
+        name.trim(),
+        username.trim(),
+        email.trim(),
+        password,
+        noHandphone.trim()
+      );
+      console.log('📱 Registration successful, navigating to UserProfile...');
+
+      // Use reset navigation to ensure clean navigation state
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'UserProfile' }],
+        })
+      );
+
+      // Show success message after navigation
+      setTimeout(() => {
+        Alert.alert('Success', 'Account created successfully!');
+      }, 100);
     } catch (error) {
+      console.log('📱 Registration failed:', error.message);
       Alert.alert('Registration Failed', error.message || 'Please try again');
     }
   };
 
   return (
-    <View
+    <ScrollView
       style={[
-        commonStyles.authContainer,
+        styles.scrollContainer,
         { backgroundColor: currentTheme.background },
       ]}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
     >
       <Text style={[commonStyles.authTitle, { color: currentTheme.text }]}>
         Create Account
@@ -59,7 +110,7 @@ export default function RegisterScreen({ navigation }) {
 
       <View style={commonStyles.formGroup}>
         <Text style={[commonStyles.label, { color: currentTheme.text }]}>
-          Full Name
+          Full Name *
         </Text>
         <TextInput
           placeholder="Enter your full name"
@@ -80,7 +131,28 @@ export default function RegisterScreen({ navigation }) {
 
       <View style={commonStyles.formGroup}>
         <Text style={[commonStyles.label, { color: currentTheme.text }]}>
-          Email
+          Username *
+        </Text>
+        <TextInput
+          placeholder="Choose a unique username"
+          placeholderTextColor={currentTheme.textSecondary}
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          style={[
+            commonStyles.input,
+            {
+              backgroundColor: currentTheme.inputBackground,
+              color: currentTheme.inputText,
+              borderColor: currentTheme.inputBorder,
+            },
+          ]}
+        />
+      </View>
+
+      <View style={commonStyles.formGroup}>
+        <Text style={[commonStyles.label, { color: currentTheme.text }]}>
+          Email *
         </Text>
         <TextInput
           placeholder="Enter your email"
@@ -102,7 +174,28 @@ export default function RegisterScreen({ navigation }) {
 
       <View style={commonStyles.formGroup}>
         <Text style={[commonStyles.label, { color: currentTheme.text }]}>
-          Password
+          Phone Number
+        </Text>
+        <TextInput
+          placeholder="Enter your phone number (optional)"
+          placeholderTextColor={currentTheme.textSecondary}
+          value={noHandphone}
+          onChangeText={setNoHandphone}
+          keyboardType="phone-pad"
+          style={[
+            commonStyles.input,
+            {
+              backgroundColor: currentTheme.inputBackground,
+              color: currentTheme.inputText,
+              borderColor: currentTheme.inputBorder,
+            },
+          ]}
+        />
+      </View>
+
+      <View style={commonStyles.formGroup}>
+        <Text style={[commonStyles.label, { color: currentTheme.text }]}>
+          Password *
         </Text>
         <TextInput
           placeholder="Create a password (min 6 characters)"
@@ -172,11 +265,19 @@ export default function RegisterScreen({ navigation }) {
       />
 
       <ThemeButton size="medium" top={50} right={20} />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flex: 1,
+  },
+  contentContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
   container: { flex: 1, justifyContent: 'center', padding: 20 },
   title: { fontSize: 24, marginBottom: 20, textAlign: 'center' },
   input: { padding: 10, borderRadius: 5, marginBottom: 10 },

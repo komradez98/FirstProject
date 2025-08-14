@@ -2,9 +2,16 @@
 export interface User {
   id: string;
   name: string;
+  username: string;
   email: string;
-  avatar?: string;
+  noHandphone?: string;
+  role: 'customer' | 'admin' | 'staff';
+  isActive: boolean;
+  emailVerified: boolean;
+  lastLogin?: string;
   createdAt: string;
+  updatedAt: string;
+  avatar?: string; // Optional for profile picture
 }
 
 export interface AuthState {
@@ -16,8 +23,8 @@ export interface AuthState {
 }
 
 export interface AuthActions {
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  login: (emailOrUsername: string, password: string) => Promise<void>;
+  register: (name: string, username: string, email: string, password: string, noHandphone: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
   setLoading: (loading: boolean) => void;

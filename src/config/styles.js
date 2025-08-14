@@ -187,7 +187,21 @@ export const commonStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.cream,
     paddingHorizontal: 24,
+  },
+
+  // Login screen container (centered, no scroll)
+  loginContainer: {
+    flex: 1,
+    backgroundColor: colors.cream,
+    paddingHorizontal: 24,
     justifyContent: 'center',
+  },
+
+  // Register screen container (for ScrollView content)
+  registerContainer: {
+    flex: 1,
+    backgroundColor: colors.cream,
+    paddingHorizontal: 24,
   },
 
   authTitle: {

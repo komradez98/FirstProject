@@ -8,41 +8,77 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import ThemeButton from '../components/ThemeButton';
 import ForgotPasswordLink from '../components/ForgotPasswordLink';
+import { testAPI } from '../utils/apiTest';
 
 export default function LoginScreen({ navigation }) {
   const { login, isLoading, error, clearError } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
 
   // Get current theme styles
   const currentTheme = themes[theme];
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
+    if (!emailOrUsername.trim() || !password.trim()) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     try {
+      console.log('📱 Starting login process...');
       clearError(); // Clear any previous errors
-      await login(email.trim(), password);
-      Alert.alert('Success', 'Login successful!');
-      // Navigation to main app would happen here
+      await login(emailOrUsername.trim(), password);
+      console.log('📱 Login successful, navigating to UserProfile...');
+
+      // Use reset navigation to ensure clean navigation state
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'UserProfile' }],
+        })
+      );
+
+      // Show success message after navigation
+      setTimeout(() => {
+        Alert.alert('Success', 'Login successful!');
+      }, 100);
     } catch (error) {
+      console.log('📱 Login failed:', error.message);
       Alert.alert('Login Failed', error.message || 'Please try again');
     }
+  };
+
+  const testConnection = async () => {
+    Alert.alert('Testing Connection', 'Checking API connection...');
+    const isConnected = await testAPI.ping();
+    if (isConnected) {
+      Alert.alert('Success', 'API connection successful!');
+    } else {
+      Alert.alert('Error', 'Cannot connect to API. Check if backend is running.');
+    }
+  };
+
+  const testNavigation = () => {
+    console.log('📱 Testing navigation to UserProfile...');
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'UserProfile' }],
+      })
+    );
   };
 
   return (
     <View
       style={[
-        commonStyles.authContainer,
+        commonStyles.loginContainer,
         { backgroundColor: currentTheme.background },
       ]}
     >
@@ -58,13 +94,13 @@ export default function LoginScreen({ navigation }) {
 
       <View style={commonStyles.formGroup}>
         <Text style={[commonStyles.label, { color: currentTheme.text }]}>
-          Email
+          Email or Username
         </Text>
         <TextInput
-          placeholder="Enter your email"
+          placeholder="Enter your email or username"
           placeholderTextColor={currentTheme.textSecondary}
-          value={email}
-          onChangeText={setEmail}
+          value={emailOrUsername}
+          onChangeText={setEmailOrUsername}
           keyboardType="email-address"
           autoCapitalize="none"
           style={[
@@ -141,6 +177,7 @@ export default function LoginScreen({ navigation }) {
         </Text>
       </TouchableOpacity>
 
+
       <ForgotPasswordLink />
 
       <ThemeButton size="medium" top={50} right={20} />
@@ -149,7 +186,7 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 20 },
+  // Remove unused styles, using commonStyles instead
   title: { fontSize: 24, marginBottom: 20, textAlign: 'center' },
   input: { padding: 10, borderRadius: 5, marginBottom: 10 },
   circleButton: {
