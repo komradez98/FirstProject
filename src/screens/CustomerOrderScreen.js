@@ -13,6 +13,7 @@ import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { api } from '../store/authStore';
+import HomeButton from '../components/HomeButton';
 
 export default function CustomerOrderScreen({ navigation }) {
   const { user } = useAuth();
@@ -286,7 +287,6 @@ export default function CustomerOrderScreen({ navigation }) {
                 {
                   borderColor: currentTheme.primary,
                   marginTop: 16,
-                  marginBottom: 32,
                 },
               ]}
               onPress={() => navigation.navigate('CreateOrder')}
@@ -295,8 +295,19 @@ export default function CustomerOrderScreen({ navigation }) {
                 Buat Pesanan Baru
               </Text>
             </TouchableOpacity>
+
+            {/* Regular Home Button */}
+            <View style={styles.homeButtonContainer}>
+              <HomeButton
+                size="small"
+                showLabel={true}
+                variant="outlined"
+                style={styles.homeButton}
+              />
+            </View>
           </>
         )}
+
       </ScrollView>
     </View>
   );
@@ -345,6 +356,14 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingBottom: 32,
+  },
+  homeButtonContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 32,
+  },
+  homeButton: {
+    minWidth: 120,
   },
   orderHeader: {
     flexDirection: 'row',

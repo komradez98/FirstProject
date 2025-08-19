@@ -10,6 +10,8 @@ import UserProfile from './src/screens/UserProfile';
 import CustomerOrderScreen from './src/screens/CustomerOrderScreen';
 import StaffOrderScreen from './src/screens/StaffOrderScreen';
 import OrderDetailScreen from './src/screens/OrderDetailScreen';
+import CreateOrderScreen from './src/screens/CreateOrderScreen';
+import HomeScreen from './src/screens/HomeScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -18,9 +20,9 @@ function AppNavigator() {
 
   return (
     <Stack.Navigator
-      initialRouteName={isAuthenticated ? "UserProfile" : "Login"}
+      initialRouteName={isAuthenticated ? "Home" : "Login"}
       screenOptions={{
-        headerShown: true,
+        headerShown: false,  // This hides headers on all screens
         headerStyle: {
           backgroundColor: '#436b88', // Use your app's primary color
         },
@@ -33,32 +35,34 @@ function AppNavigator() {
       <Stack.Screen
         name="Login"
         component={LoginScreen}
-        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Register"
         component={RegisterScreen}
-        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Home"
+        component={HomeScreen}
       />
       <Stack.Screen
         name="UserProfile"
         component={UserProfile}
-        options={{ title: 'Profile', headerLeft: null }}
       />
       <Stack.Screen
         name="CustomerOrders"
         component={CustomerOrderScreen}
-        options={{ title: 'My Orders' }}
       />
       <Stack.Screen
         name="StaffOrders"
         component={StaffOrderScreen}
-        options={{ title: 'Manage Orders' }}
       />
       <Stack.Screen
         name="OrderDetail"
         component={OrderDetailScreen}
-        options={{ title: 'Order Details' }}
+      />
+      <Stack.Screen
+        name="CreateOrder"
+        component={CreateOrderScreen}
       />
     </Stack.Navigator>
   );
