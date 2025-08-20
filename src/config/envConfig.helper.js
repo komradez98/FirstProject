@@ -5,7 +5,7 @@
 // Update this IP address based on your active network connection:
 // Wi-Fi Network: 10.162.0.14 (recommended for phone connection)
 // ZeroTier VPN: 192.168.191.178
-const WIFI_IP = '10.162.0.14';          // Your Wi-Fi network IP (recommended)
+const WIFI_IP = '192.168.1.5';          // Your Wi-Fi network IP (recommended)
 const ZEROTIER_IP = '192.168.191.178';   // Your ZeroTier VPN IP (alternative)
 
 // Configuration for different environments

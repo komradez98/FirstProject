@@ -32,16 +32,15 @@ export default function LoginScreen({ navigation }) {
     }
 
     try {
-      console.log('📱 Starting login process...');
       clearError(); // Clear any previous errors
       await login(emailOrUsername.trim(), password);
-      console.log('📱 Login successful, navigating to UserProfile...');
+
 
       // Use reset navigation to ensure clean navigation state
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'UserProfile' }],
+          routes: [{ name: 'Home' }],
         })
       );
 
@@ -176,7 +175,6 @@ export default function LoginScreen({ navigation }) {
           Create Account
         </Text>
       </TouchableOpacity>
-
 
       <ForgotPasswordLink />
 

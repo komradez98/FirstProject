@@ -13,6 +13,7 @@ import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { api } from '../store/authStore';
+import HeaderNavbar from '../components/HeaderNavbar';
 import HomeButton from '../components/HomeButton';
 
 export default function CustomerOrderScreen({ navigation }) {
@@ -238,9 +239,7 @@ export default function CustomerOrderScreen({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
-      <Text style={[commonStyles.heading2, { color: currentTheme.text, marginHorizontal: 16, marginTop: 16, marginBottom: 12 }]}>
-        Pesanan Saya
-      </Text>
+      <HeaderNavbar title="My Orders" />
 
       {renderFilterButtons()}
 
@@ -295,16 +294,6 @@ export default function CustomerOrderScreen({ navigation }) {
                 Buat Pesanan Baru
               </Text>
             </TouchableOpacity>
-
-            {/* Regular Home Button */}
-            <View style={styles.homeButtonContainer}>
-              <HomeButton
-                size="small"
-                showLabel={true}
-                variant="outlined"
-                style={styles.homeButton}
-              />
-            </View>
           </>
         )}
 
@@ -344,6 +333,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+    marginTop: 16,
   },
   filterButtonText: {
     fontSize: 10,

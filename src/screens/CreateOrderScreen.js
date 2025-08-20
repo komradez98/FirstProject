@@ -14,6 +14,7 @@ import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { api } from '../store/authStore';
+import HeaderNavbar from '../components/HeaderNavbar';
 import HomeButton from '../components/HomeButton';
 
 export default function CreateOrderScreen({ navigation, route }) {
@@ -502,10 +503,12 @@ export default function CreateOrderScreen({ navigation, route }) {
   const isOrderComplete = createdOrder && !isCreatingOrder;
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: currentTheme.background }]}
-      contentContainerStyle={styles.scrollContent}
-    >
+    <>
+      <HeaderNavbar title="Book Booth" showBack={true} />
+      <ScrollView
+        style={[styles.container, { backgroundColor: currentTheme.background }]}
+        contentContainerStyle={styles.scrollContent}
+      >
       {/* Debug - Uncomment to check data */}
       {/* <View>
         <Text style={{ color: currentTheme.text }}>Booths: {booths.length}</Text>
@@ -741,6 +744,7 @@ export default function CreateOrderScreen({ navigation, route }) {
       {renderItemModal()}
 
     </ScrollView>
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { testApiConnection, debugAuthHeaders } from '../utils/orderUtils';
+import HeaderNavbar from '../components/HeaderNavbar';
 
 export default function UserProfile({ navigation }) {
   const { user, logout, isAuthenticated } = useAuth();
@@ -80,10 +81,9 @@ export default function UserProfile({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
-      <Text style={[styles.title, { color: currentTheme.text }]}>
-        Welcome, {user.name}!
-      </Text>
+      <HeaderNavbar title="User Profile" />
 
+      <View style={styles.content}>
       <View style={styles.userInfo}>
         <Text style={[styles.label, { color: currentTheme.text }]}>User Information:</Text>
         <Text style={[styles.info, { color: currentTheme.textSecondary }]}>
@@ -164,12 +164,16 @@ export default function UserProfile({ navigation }) {
           Logout
         </Text>
       </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  content: {
     flex: 1,
     padding: 20,
     justifyContent: 'center',

@@ -12,6 +12,8 @@ import StaffOrderScreen from './src/screens/StaffOrderScreen';
 import OrderDetailScreen from './src/screens/OrderDetailScreen';
 import CreateOrderScreen from './src/screens/CreateOrderScreen';
 import HomeScreen from './src/screens/HomeScreen';
+import RemoteScreen from './src/screens/RemoteScreen';
+import MusicPlayerScreen from './src/screens/MusicPlayerScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -63,6 +65,17 @@ function AppNavigator() {
       <Stack.Screen
         name="CreateOrder"
         component={CreateOrderScreen}
+      />
+      <Stack.Screen
+        name="Remote"
+        component={RemoteScreen}
+      />
+      <Stack.Screen
+        name="MusicPlayer"
+        component={MusicPlayerScreen}
+        options={{
+          headerShown: false
+        }}
       />
     </Stack.Navigator>
   );

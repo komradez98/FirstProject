@@ -15,6 +15,7 @@ import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { api } from '../store/authStore';
+import HeaderNavbar from '../components/HeaderNavbar';
 
 export default function StaffOrderScreen({ navigation }) {
   const { user } = useAuth();
@@ -403,9 +404,7 @@ export default function StaffOrderScreen({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
-      <Text style={[commonStyles.heading2, { color: currentTheme.text, marginHorizontal: 16, marginTop: 16, marginBottom: 12 }]}>
-        Kelola Pesanan
-      </Text>
+      <HeaderNavbar title="Staff Orders" />
 
       {renderFilterButtons()}
 

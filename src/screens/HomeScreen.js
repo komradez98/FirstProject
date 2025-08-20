@@ -13,6 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import CustomSlider from '../components/CustomSlider';
+import HeaderNavbar from '../components/HeaderNavbar';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import { useAuth, useTheme } from '../store';
@@ -78,25 +79,76 @@ export default function HomeScreen({ navigation }) {
   const requestLocationPermission = async () => {
     if (Platform.OS === 'android') {
       try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission',
-            message: 'This app needs access to your location to show nearby booths.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          },
+        // Check if permissions are already granted
+        const hasPermission = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
         );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+
+        if (hasPermission) {
+          console.log('📍 Location permission already granted');
+          getCurrentLocation();
+          return;
+        }
+
+        // Request both fine and coarse location permissions
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ]);
+
+        console.log('📍 Permission results:', granted);
+
+        if (
+          granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED ||
+          granted[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED
+        ) {
+          console.log('📍 Location permission granted');
           getCurrentLocation();
         } else {
+          console.log('📍 Location permission denied');
           setIsLoadingLocation(false);
-          Alert.alert('Permission Denied', 'Location permission is required to show nearby booths.');
+          Alert.alert(
+            'Location Permission Required',
+            'This app needs location access to show nearby booths. Please enable location permission in your device settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  // Use default location as fallback
+                  setCurrentLocation({
+                    latitude: 37.4220,
+                    longitude: -122.0840
+                  });
+                  setMapRegion({
+                    latitude: 37.4220,
+                    longitude: -122.0840,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  });
+                  fetchNearbyBooths(37.4220, -122.0840, searchRadius);
+                  getCurrentAddress(37.4220, -122.0840);
+                }
+              }
+            ]
+          );
         }
       } catch (err) {
-        console.warn(err);
+        console.error('📍 Location permission error:', err);
         setIsLoadingLocation(false);
+        // Use default location as fallback
+        setCurrentLocation({
+          latitude: 37.4220,
+          longitude: -122.0840
+        });
+        setMapRegion({
+          latitude: 37.4220,
+          longitude: -122.0840,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        fetchNearbyBooths(37.4220, -122.0840, searchRadius);
+        getCurrentAddress(37.4220, -122.0840);
       }
     } else {
       getCurrentLocation();
@@ -104,8 +156,11 @@ export default function HomeScreen({ navigation }) {
   };
 
   const getCurrentLocation = () => {
+    console.log('📍 Getting current location...');
+
     Geolocation.getCurrentPosition(
       (position) => {
+        console.log('📍 Location obtained:', position.coords);
         const { latitude, longitude } = position.coords;
         const location = { latitude, longitude };
 
@@ -122,15 +177,61 @@ export default function HomeScreen({ navigation }) {
         getCurrentAddress(latitude, longitude);
       },
       (error) => {
-        console.error('Location error:', error);
+        console.error('📍 Location error:', error);
         setIsLoadingLocation(false);
-        Alert.alert('Location Error', 'Unable to get your current location. Using default location.');
-        // Use default location and still fetch booths
-        fetchNearbyBooths(mapRegion.latitude, mapRegion.longitude, searchRadius);
-        // Try to get address for default location too
-        getCurrentAddress(mapRegion.latitude, mapRegion.longitude);
+
+        let errorMessage = 'Unable to get your current location.';
+        switch(error.code) {
+          case 1:
+            errorMessage = 'Location access denied. Please enable location permissions in settings.';
+            break;
+          case 2:
+            errorMessage = 'Location unavailable. Please check if location services are enabled.';
+            break;
+          case 3:
+            errorMessage = 'Location request timed out. Please try again.';
+            break;
+          default:
+            errorMessage = `Location error: ${error.message}`;
+        }
+
+        Alert.alert(
+          'Location Error',
+          errorMessage + ' Using your approximate location instead.',
+          [
+            {
+              text: 'Try Again',
+              onPress: () => {
+                setIsLoadingLocation(true);
+                getCurrentLocation();
+              }
+            },
+            {
+              text: 'Use Default Location',
+              onPress: () => {
+                // Use Mountain View as default location
+                const defaultLocation = {
+                  latitude: 37.4220,
+                  longitude: -122.0840
+                };
+                setCurrentLocation(defaultLocation);
+                setMapRegion({
+                  ...defaultLocation,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                });
+                fetchNearbyBooths(defaultLocation.latitude, defaultLocation.longitude, searchRadius);
+                getCurrentAddress(defaultLocation.latitude, defaultLocation.longitude);
+              }
+            }
+          ]
+        );
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      {
+        enableHighAccuracy: false, // Try with lower accuracy first
+        timeout: 20000,            // Increase timeout
+        maximumAge: 30000          // Accept cached location
+      }
     );
   };
 
@@ -378,6 +479,7 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
+      <HeaderNavbar title="Nearby Booths" />
       <ScrollView
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
@@ -389,7 +491,7 @@ export default function HomeScreen({ navigation }) {
         {/* Debug - Booth Information */}
         <View style={[styles.debugContainer, { backgroundColor: currentTheme.card }]}>
           <Text style={[styles.debugTitle, { color: currentTheme.text }]}>
-            🔍 Debug Info
+            Location data
           </Text>
           <Text style={[styles.debugText, { color: currentTheme.textSecondary }]}>
             Current Location: {currentLocation ? `${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}` : 'Loading...'}
@@ -397,19 +499,12 @@ export default function HomeScreen({ navigation }) {
           <Text style={[styles.debugText, { color: currentTheme.textSecondary }]}>
             📍 Address: {isLoadingAddress ? 'Loading address...' : currentAddress}
           </Text>
-          <Text style={[styles.debugText, { color: currentTheme.textSecondary }]}>
-            Search Radius: {searchRadius}km
-          </Text>
-        <Text style={[styles.debugText, { color: currentTheme.textSecondary }]}>
-          Booths Array Length: {nearbyBooths.length}
-        </Text>
-        <Text style={[styles.debugText, { color: currentTheme.textSecondary }]}>
-          Loading Booths: {isLoadingBooths ? 'Yes' : 'No'}
-        </Text>
         {nearbyBooths.length > 0 && (
-          <Text style={[styles.debugText, { color: currentTheme.success }]}>
-            First booth: ID={nearbyBooths[0].id}, Lat={nearbyBooths[0].latitude}, Lng={nearbyBooths[0].longitude}
-          </Text>
+          <>
+            <Text style={[styles.debugText, { color: currentTheme.success }]}>
+              Nearest Booth: {nearbyBooths[0].address}
+            </Text>
+          </>
         )}
       </View>
 

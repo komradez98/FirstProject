@@ -7,11 +7,14 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Clipboard,
+  ToastAndroid,
 } from 'react-native';
 import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
 import { commonStyles } from '../config/styles';
 import { api } from '../store/authStore';
+import HeaderNavbar from '../components/HeaderNavbar';
 
 export default function OrderDetailScreen({ route, navigation }) {
   const { orderId } = route.params;
@@ -39,6 +42,11 @@ export default function OrderDetailScreen({ route, navigation }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const copyUniqueId = (uniqueId) => {
+    Clipboard.setString(uniqueId);
+    ToastAndroid.show('Unique ID copied to clipboard!', ToastAndroid.SHORT);
   };
 
   const getStatusColor = (status) => {
@@ -245,11 +253,13 @@ export default function OrderDetailScreen({ route, navigation }) {
   const canCancel = ['draft', 'pending', 'confirmed'].includes(order.orderStatus);
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: currentTheme.background }]}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+    <>
+      <HeaderNavbar title={`Order #${order?.id || orderId}`} showBack={true} />
+      <ScrollView
+        style={[styles.container, { backgroundColor: currentTheme.background }]}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
       {/* Header */}
       <View style={[commonStyles.card, { backgroundColor: currentTheme.card, marginBottom: 16 }]}>
         <View style={styles.headerRow}>
@@ -278,6 +288,31 @@ export default function OrderDetailScreen({ route, navigation }) {
             minute: '2-digit',
           })}
         </Text>
+
+        {/* Unique ID for Remote Access - only show if order is ready and has uniqueId */}
+        {order.orderStatus === 'ready' && order.uniqueId && (
+          <View style={styles.uniqueIdContainer}>
+            <Text style={[styles.uniqueIdLabel, { color: currentTheme.text }]}>
+              🎮 Remote Access ID:
+            </Text>
+            <View style={styles.uniqueIdRow}>
+              <Text style={[styles.uniqueIdText, { color: currentTheme.primary, backgroundColor: currentTheme.cardHighlight }]}>
+                {order.uniqueId}
+              </Text>
+              <TouchableOpacity
+                style={[styles.copyButton, { backgroundColor: currentTheme.primary }]}
+                onPress={() => copyUniqueId(order.uniqueId)}
+              >
+                <Text style={[styles.copyButtonText, { color: currentTheme.buttonText }]}>
+                  📋 Copy
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.uniqueIdHint, { color: currentTheme.textSecondary }]}>
+              Use this ID in the Remote Control screen to access your booth
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Customer & Booth Info */}
@@ -414,7 +449,8 @@ export default function OrderDetailScreen({ route, navigation }) {
           </Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+      </>
   );
 }
 
@@ -584,5 +620,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     padding: 16,
+  },
+  uniqueIdContainer: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  uniqueIdLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  uniqueIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  uniqueIdText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'monospace',
+    padding: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  copyButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  copyButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  uniqueIdHint: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });

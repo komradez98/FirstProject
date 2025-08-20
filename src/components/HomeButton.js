@@ -107,13 +107,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 10,
     width: '100%',
-    elevation: 4,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 3.84,
   },
   buttonContent: {
     flexDirection: 'row',
