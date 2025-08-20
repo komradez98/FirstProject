@@ -504,7 +504,7 @@ export default function CreateOrderScreen({ navigation, route }) {
 
   return (
     <>
-      <HeaderNavbar title="Book Booth" showBack={true} />
+      <HeaderNavbar title="Book Booth" showBack={false} />
       <ScrollView
         style={[styles.container, { backgroundColor: currentTheme.background }]}
         contentContainerStyle={styles.scrollContent}

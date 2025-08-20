@@ -1,3 +1,4 @@
+// screens/RemoteScreen.js
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,8 +8,8 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Modal,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import { useAuth, useTheme } from '../store';
 import { themes } from '../config/theme';
@@ -18,7 +19,7 @@ import HeaderNavbar from '../components/HeaderNavbar';
 
 const { width, height } = Dimensions.get('window');
 
-export default function RemoteScreen({ navigation, route }) {
+export default function RemoteScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
   const currentTheme = themes[theme];
@@ -31,9 +32,7 @@ export default function RemoteScreen({ navigation, route }) {
   const [readyOrders, setReadyOrders] = useState([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [isLoadingReadyOrders, setIsLoadingReadyOrders] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
 
-  // Load user's successful orders on component mount
   useEffect(() => {
     fetchUserOrders();
     fetchReadyOrders();
@@ -44,29 +43,24 @@ export default function RemoteScreen({ navigation, route }) {
     try {
       setIsLoadingReadyOrders(true);
       const response = await api.get('/orders/customer/ready');
-
       if (response.data?.data) {
         setReadyOrders(response.data.data);
       }
     } catch (error) {
       console.error('Error fetching ready orders:', error);
-      // Don't show error alert for ready orders as it's not critical
+      // Silent fail (non-critical)
     } finally {
       setIsLoadingReadyOrders(false);
     }
   };
 
-  // Fetch user's completed/confirmed orders
+  // Fetch user's confirmed/active orders
   const fetchUserOrders = async () => {
     try {
       setIsLoadingOrders(true);
       const response = await api.get('/orders/customer', {
-        params: {
-          status: 'confirmed', // Only get confirmed orders
-          limit: 10
-        }
+        params: { status: 'confirmed', limit: 10 },
       });
-
       if (response.data?.data) {
         setUserOrders(response.data.data);
       }
@@ -78,17 +72,16 @@ export default function RemoteScreen({ navigation, route }) {
     }
   };
 
-  // Handle manual unique ID input
+  // Manual connect by ID
   const handleConnectById = async () => {
     if (!uniqueId.trim()) {
       Alert.alert('Input Required', 'Please enter a unique ID to connect');
       return;
     }
-
     await connectToBooth(uniqueId.trim());
   };
 
-  // Autofill unique ID from ready order
+  // Quick fill from a ready order
   const handleAutofillUniqueId = (order) => {
     setUniqueId(order.uniqueId);
     Alert.alert(
@@ -96,106 +89,98 @@ export default function RemoteScreen({ navigation, route }) {
       `Unique ID from Order #${order.id} has been filled. Tap "Connect to Booth" to continue.`,
       [
         { text: 'Connect Now', onPress: () => connectToBooth(order.uniqueId) },
-        { text: 'OK' }
+        { text: 'OK' },
       ]
     );
   };
 
-  // Connect to booth using unique ID
+  // Core connect logic
   const connectToBooth = async (id) => {
     try {
       setIsConnecting(true);
 
-      // First approach: Try to find the order directly by unique ID
+      // Try find the order in ready orders (fast path)
       let orderWithBooth = null;
-
       try {
-        // Check if the unique ID belongs to user's ready orders
         const readyOrdersResponse = await api.get('/orders/customer/ready');
-        const readyOrder = readyOrdersResponse.data?.data?.find(order => order.uniqueId === id);
-
+        const readyOrder = readyOrdersResponse.data?.data?.find(
+          (o) => o.uniqueId === id
+        );
         if (readyOrder) {
           orderWithBooth = readyOrder;
-          console.log('Found order from ready orders:', orderWithBooth);
         }
-      } catch (readyOrderError) {
-        console.log('Ready orders check failed, trying alternative approach');
+      } catch {
+        // ignore
       }
 
-      // Second approach: Try to verify through active listeners (fallback)
+      // Fallback: verify listener and match with user's orders
       if (!orderWithBooth) {
         try {
           const verifyResponse = await api.get(`/active-listeners/unique/${id}`);
-
           if (verifyResponse.data?.data) {
             const listener = verifyResponse.data.data;
-
-            // Check if this booth belongs to one of user's orders
-            const userOrder = userOrders.find(order =>
-              order.boothId === listener.boothId &&
-              (order.orderStatus === 'confirmed' || order.orderStatus === 'ready' || order.orderStatus === 'processing')
+            const userOrder = userOrders.find(
+              (o) =>
+                o.boothId === listener.boothId &&
+                ['confirmed', 'ready', 'processing'].includes(o.orderStatus)
             );
-
             if (userOrder) {
               orderWithBooth = {
                 ...userOrder,
                 uniqueId: id,
-                booth: userOrder.booth || listener.booth
+                booth: userOrder.booth || listener.booth,
               };
             }
           }
-        } catch (verifyError) {
-          console.log('Active listeners verification failed');
+        } catch {
+          // ignore
         }
       }
 
       if (!orderWithBooth) {
         Alert.alert(
           'Access Denied',
-          'This unique ID is not associated with your orders, or you don\'t have permission to access this booth.'
+          "This unique ID is not associated with your orders, or you don't have permission to access this booth."
         );
         return;
       }
 
-      // Connect to the booth
-      const connectResponse = await api.post(`/active-listeners/unique/${id}/connect`, {
-        userId: user.id
-      });
+      // Connect
+      const connectResponse = await api.post(
+        `/active-listeners/unique/${id}/connect`,
+        { userId: user.id }
+      );
 
       if (connectResponse.data?.data) {
-        // Successfully connected
         const boothData = {
           ...connectResponse.data.data,
           order: orderWithBooth,
-          uniqueId: id
+          uniqueId: id,
         };
 
         setConnectedBooth(boothData);
 
         Alert.alert(
           'Connected Successfully!',
-          `Connected to Booth ${orderWithBooth.booth?.boothType || 'Unknown'}\nStatus: ${connectResponse.data.data.status?.toUpperCase() || 'CONNECTED'}\nOrder: #${orderWithBooth.id}`,
+          `Connected to Booth ${orderWithBooth.booth?.boothType || 'Unknown'}\nStatus: ${
+            connectResponse.data.data.status?.toUpperCase() || 'CONNECTED'
+          }\nOrder: #${orderWithBooth.id}`,
           [
             {
               text: 'Open Remote Control',
               onPress: () => {
                 navigation.navigate('MusicPlayer', {
                   booth: boothData,
-                  uniqueId: id
+                  uniqueId: id,
                 });
-              }
+              },
             },
-            {
-              text: 'Later',
-              style: 'cancel'
-            }
+            { text: 'Later', style: 'cancel' },
           ]
         );
       }
-
     } catch (error) {
       console.error('Connection error:', error);
-
       if (error.response?.status === 404) {
         Alert.alert('Not Found', 'Booth with this unique ID was not found or is not active');
       } else if (error.response?.status === 403) {
@@ -213,31 +198,25 @@ export default function RemoteScreen({ navigation, route }) {
     }
   };
 
-  // Disconnect from booth
+  // Disconnect
   const disconnectFromBooth = async () => {
     if (!connectedBooth?.uniqueId) return;
-
     try {
       setIsConnecting(true);
-
-      const response = await api.post(`/active-listeners/unique/${connectedBooth.uniqueId}/disconnect`);
-
+      const response = await api.post(
+        `/active-listeners/unique/${connectedBooth.uniqueId}/disconnect`
+      );
       if (response.data?.data) {
-        Alert.alert(
-          'Disconnected Successfully',
-          'You have been disconnected from the booth.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                setConnectedBooth(null);
-                setUniqueId('');
-              }
-            }
-          ]
-        );
+        Alert.alert('Disconnected Successfully', 'You have been disconnected from the booth.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              setConnectedBooth(null);
+              setUniqueId('');
+            },
+          },
+        ]);
       }
-
     } catch (error) {
       console.error('Disconnect error:', error);
       Alert.alert('Disconnect Error', 'Failed to disconnect from booth.');
@@ -246,19 +225,55 @@ export default function RemoteScreen({ navigation, route }) {
     }
   };
 
-  // Handle QR code scan (placeholder for now)
+  // Placeholder for QR scan
   const handleScanQR = () => {
-    // TODO: Implement QR code scanning functionality
     Alert.alert(
       'QR Scanner',
       'QR code scanning will be implemented in the next update. For now, please use manual input.',
-      [
-        { text: 'OK' }
-      ]
+      [{ text: 'OK' }]
     );
   };
 
-  // Render ready orders for autofill
+  // Sections
+  const renderReadyOrdersQuick = () => {
+    if (readyOrders.length === 0) return null;
+    return (
+      <View style={[styles.readyOrdersContainer, { backgroundColor: currentTheme.card }]}>
+        <Text style={[styles.readyOrdersTitle, { color: currentTheme.text }]}>
+          🎮 Quick Access - Ready Orders
+        </Text>
+        <Text style={[styles.readyOrdersSubtitle, { color: currentTheme.textSecondary }]}>
+          Tap an order to autofill its Unique ID
+        </Text>
+        {readyOrders.map((order) => (
+          <TouchableOpacity
+            key={order.id}
+            style={[
+              styles.readyOrderItem,
+              { borderColor: currentTheme.border, backgroundColor: currentTheme.card },
+            ]}
+            onPress={() => handleAutofillUniqueId(order)}
+          >
+            <View style={styles.readyOrderInfo}>
+              <Text style={[styles.readyOrderText, { color: currentTheme.text }]}>
+                Order #{order.id} - Booth {order.booth?.boothType || 'N/A'}
+              </Text>
+              <Text style={[styles.readyOrderSubtext, { color: currentTheme.textSecondary }]}>
+                {order.booth?.landmark || 'Ready for pickup'}
+              </Text>
+              <Text style={[styles.readyOrderId, { color: currentTheme.primary }]}>
+                ID: {order.uniqueId}
+              </Text>
+            </View>
+            <View style={[styles.readyBadge, { backgroundColor: currentTheme.success }]}>
+              <Text style={[styles.readyBadgeText, { color: currentTheme.buttonText }]}>READY</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
   const renderReadyOrders = () => {
     if (isLoadingReadyOrders) {
       return (
@@ -270,11 +285,7 @@ export default function RemoteScreen({ navigation, route }) {
         </View>
       );
     }
-
-    if (readyOrders.length === 0) {
-      return null; // Don't show anything if no ready orders
-    }
-
+    if (readyOrders.length === 0) return null;
     return (
       <View style={[styles.readyOrdersContainer, { backgroundColor: currentTheme.card }]}>
         <Text style={[styles.readyOrdersTitle, { color: currentTheme.text }]}>
@@ -287,7 +298,13 @@ export default function RemoteScreen({ navigation, route }) {
         {readyOrders.map((order) => (
           <TouchableOpacity
             key={order.id}
-            style={[styles.readyOrderItem, { backgroundColor: currentTheme.success + '20', borderColor: currentTheme.success }]}
+            style={[
+              styles.readyOrderItem,
+              {
+                backgroundColor: currentTheme.success + '20',
+                borderColor: currentTheme.success,
+              },
+            ]}
             onPress={() => handleAutofillUniqueId(order)}
           >
             <View style={styles.readyOrderInfo}>
@@ -302,9 +319,7 @@ export default function RemoteScreen({ navigation, route }) {
               </Text>
             </View>
             <View style={[styles.autofillBadge, { backgroundColor: currentTheme.success }]}>
-              <Text style={[styles.autofillText, { color: currentTheme.buttonText }]}>
-                📱 Connect
-              </Text>
+              <Text style={[styles.autofillText, { color: currentTheme.buttonText }]}>📱 Connect</Text>
             </View>
           </TouchableOpacity>
         ))}
@@ -312,7 +327,6 @@ export default function RemoteScreen({ navigation, route }) {
     );
   };
 
-  // Render user's orders for reference
   const renderUserOrders = () => {
     if (isLoadingOrders) {
       return (
@@ -328,9 +342,7 @@ export default function RemoteScreen({ navigation, route }) {
     if (userOrders.length === 0) {
       return (
         <View style={[styles.emptyContainer, { backgroundColor: currentTheme.card }]}>
-          <Text style={[styles.emptyTitle, { color: currentTheme.text }]}>
-            No Active Bookings
-          </Text>
+          <Text style={[styles.emptyTitle, { color: currentTheme.text }]}>No Active Bookings</Text>
           <Text style={[styles.emptySubtitle, { color: currentTheme.textSecondary }]}>
             You need a confirmed booking to use the remote control.
           </Text>
@@ -348,9 +360,7 @@ export default function RemoteScreen({ navigation, route }) {
 
     return (
       <View style={[styles.ordersContainer, { backgroundColor: currentTheme.card }]}>
-        <Text style={[styles.ordersTitle, { color: currentTheme.text }]}>
-          Your Active Bookings
-        </Text>
+        <Text style={[styles.ordersTitle, { color: currentTheme.text }]}>Your Active Bookings</Text>
         {userOrders.slice(0, 3).map((order) => (
           <View key={order.id} style={[styles.orderItem, { borderColor: currentTheme.border }]}>
             <View style={styles.orderInfo}>
@@ -361,10 +371,7 @@ export default function RemoteScreen({ navigation, route }) {
                 {order.booth?.landmark || order.booth?.address || 'No location'}
               </Text>
             </View>
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: currentTheme.success }
-            ]}>
+            <View style={[styles.statusBadge, { backgroundColor: currentTheme.success }]}>
               <Text style={[styles.statusText, { color: currentTheme.buttonText }]}>
                 {order.orderStatus}
               </Text>
@@ -379,12 +386,16 @@ export default function RemoteScreen({ navigation, route }) {
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <HeaderNavbar title="Remote Control" />
 
-      <View style={styles.content}>
+      {/* Make the screen scrollable */}
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Header Section */}
         <View style={[styles.headerSection, { backgroundColor: currentTheme.card }]}>
-          <Text style={[styles.title, { color: currentTheme.text }]}>
-            Connect to Your Booth
-          </Text>
+          <Text style={[styles.title, { color: currentTheme.text }]}>Connect to Your Booth</Text>
           <Text style={[styles.subtitle, { color: currentTheme.textSecondary }]}>
             Enter or scan the unique ID from your booked booth to start remote control
           </Text>
@@ -392,15 +403,11 @@ export default function RemoteScreen({ navigation, route }) {
 
         {/* Connection Methods */}
         <View style={[styles.methodsContainer, { backgroundColor: currentTheme.card }]}>
-          <Text style={[styles.methodsTitle, { color: currentTheme.text }]}>
-            Connection Methods
-          </Text>
+          <Text style={[styles.methodsTitle, { color: currentTheme.text }]}>Connection Methods</Text>
 
-          {/* Manual Input Method */}
+          {/* Manual Input */}
           <View style={styles.inputSection}>
-            <Text style={[styles.inputLabel, { color: currentTheme.text }]}>
-              Enter Unique ID
-            </Text>
+            <Text style={[styles.inputLabel, { color: currentTheme.text }]}>Enter Unique ID</Text>
             <TextInput
               style={[
                 styles.textInput,
@@ -408,7 +415,7 @@ export default function RemoteScreen({ navigation, route }) {
                   backgroundColor: currentTheme.inputBackground,
                   color: currentTheme.inputText,
                   borderColor: currentTheme.inputBorder,
-                }
+                },
               ]}
               placeholder="Enter booth unique ID..."
               placeholderTextColor={currentTheme.textSecondary}
@@ -422,7 +429,7 @@ export default function RemoteScreen({ navigation, route }) {
               style={[
                 styles.connectButton,
                 { backgroundColor: currentTheme.primary },
-                isConnecting && styles.disabledButton
+                isConnecting && styles.disabledButton,
               ]}
               onPress={handleConnectById}
               disabled={isConnecting}
@@ -437,12 +444,9 @@ export default function RemoteScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
 
-          {/* QR Scanner Method */}
+          {/* QR Scanner */}
           <View style={styles.scannerSection}>
-            <Text style={[styles.orText, { color: currentTheme.textSecondary }]}>
-              OR
-            </Text>
-
+            <Text style={[styles.orText, { color: currentTheme.textSecondary }]}>OR</Text>
             <TouchableOpacity
               style={[styles.scanButton, { backgroundColor: currentTheme.secondary }]}
               onPress={handleScanQR}
@@ -454,44 +458,13 @@ export default function RemoteScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Ready Orders Quick Access */}
-        {readyOrders.length > 0 && (
-          <View style={[styles.readyOrdersContainer, { backgroundColor: currentTheme.card }]}>
-            <Text style={[styles.readyOrdersTitle, { color: currentTheme.text }]}>
-              🎮 Quick Access - Ready Orders
-            </Text>
-            <Text style={[styles.readyOrdersSubtitle, { color: currentTheme.textSecondary }]}>
-              Tap an order to autofill its Unique ID
-            </Text>
-            {readyOrders.map((order) => (
-              <TouchableOpacity
-                key={order.id}
-                style={[styles.readyOrderItem, { borderColor: currentTheme.border }]}
-                onPress={() => handleAutofillUniqueId(order)}
-              >
-                <View style={styles.readyOrderInfo}>
-                  <Text style={[styles.readyOrderText, { color: currentTheme.text }]}>
-                    Order #{order.id} - Booth {order.booth?.boothType || 'N/A'}
-                  </Text>
-                  <Text style={[styles.readyOrderSubtext, { color: currentTheme.textSecondary }]}>
-                    {order.booth?.landmark || 'Ready for pickup'}
-                  </Text>
-                  <Text style={[styles.readyOrderId, { color: currentTheme.primary }]}>
-                    ID: {order.uniqueId}
-                  </Text>
-                </View>
-                <View style={[styles.readyBadge, { backgroundColor: currentTheme.success }]}>
-                  <Text style={[styles.readyBadgeText, { color: currentTheme.buttonText }]}>
-                    READY
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+        {/* Ready Orders Quick (compact) */}
+        {renderReadyOrdersQuick()}
 
-        {/* User Orders Reference */}
+        {/* Ready Orders (detailed) */}
         {renderReadyOrders()}
+
+        {/* User Orders */}
         {renderUserOrders()}
 
         {/* Connected Booth Info */}
@@ -521,11 +494,13 @@ export default function RemoteScreen({ navigation, route }) {
                 onPress={() => {
                   navigation.navigate('MusicPlayer', {
                     booth: connectedBooth,
-                    uniqueId: connectedBooth.uniqueId
+                    uniqueId: connectedBooth.uniqueId,
                   });
                 }}
               >
-                <Text style={[styles.remoteControlButtonText, { color: currentTheme.buttonText }]}>
+                <Text
+                  style={[styles.remoteControlButtonText, { color: currentTheme.buttonText }]}
+                >
                   🎮 Open Music Player
                 </Text>
               </TouchableOpacity>
@@ -546,7 +521,7 @@ export default function RemoteScreen({ navigation, route }) {
             </View>
           </View>
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -555,10 +530,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+
+  // Main scroll area
   content: {
     flex: 1,
-    padding: 16,
   },
+
+  // Cards and sections
   headerSection: {
     padding: 20,
     borderRadius: 12,
@@ -643,6 +621,73 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+
+  // Ready orders (compact and detailed)
+  readyOrdersContainer: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  readyOrdersTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  readyOrdersSubtitle: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  readyOrderItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  readyOrderInfo: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  readyOrderText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  readyOrderSubtext: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  readyOrderId: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  readyBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  readyBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  autofillBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  autofillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // User orders
   ordersContainer: {
     padding: 16,
     borderRadius: 12,
@@ -667,6 +712,7 @@ const styles = StyleSheet.create({
   },
   orderInfo: {
     flex: 1,
+    paddingRight: 8,
   },
   orderText: {
     fontSize: 16,
@@ -683,8 +729,58 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+
+  // Connected banner
+  connectedContainer: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  connectedTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  connectedText: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  connectedActions: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  remoteControlButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  remoteControlButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  disconnectButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  disconnectButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // Loading / empty states
+  loadingContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 6,
+    fontSize: 14,
   },
   emptyContainer: {
     padding: 24,
@@ -710,183 +806,6 @@ const styles = StyleSheet.create({
   },
   bookButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 14,
-  },
-  connectedContainer: {
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  connectedTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  connectedText: {
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  connectedActions: {
-    flexDirection: 'row',
-    marginTop: 16,
-    gap: 12,
-  },
-  remoteControlButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  remoteControlButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  disconnectButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    minWidth: 100,
-  },
-  disconnectButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  readyOrdersContainer: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  readyOrdersTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  readyOrdersSubtitle: {
-    fontSize: 14,
-    marginBottom: 12,
-    fontStyle: 'italic',
-  },
-  readyOrderItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  readyOrderInfo: {
-    flex: 1,
-  },
-  readyOrderText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  readyOrderSubtext: {
-    fontSize: 14,
-    marginBottom: 2,
-  },
-  readyOrderId: {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    fontWeight: '600',
-  },
-  readyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginLeft: 8,
-  },
-  readyBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  // Ready Orders Styles
-  readyOrdersContainer: {
-    marginBottom: 20,
-  },
-  readyOrdersTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 12,
-  },
-  readyOrdersLoading: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  readyOrdersEmpty: {
-    padding: 16,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 8,
-  },
-  readyOrdersEmptyText: {
-    fontSize: 14,
-    fontStyle: 'italic',
-  },
-  readyOrdersList: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 8,
-    padding: 8,
-  },
-  readyOrderItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    marginBottom: 8,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  readyOrderInfo: {
-    flex: 1,
-  },
-  readyOrderId: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginBottom: 2,
-  },
-  readyOrderBooth: {
-    fontSize: 11,
-    opacity: 0.7,
-  },
-  readyOrderUseButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  readyOrderUseButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
 });

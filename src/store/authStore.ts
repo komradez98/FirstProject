@@ -20,8 +20,10 @@ api.interceptors.request.use(
     if (state.token) {
       config.headers.Authorization = `Bearer ${state.token}`;
       config.headers.access_token = state.token;
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`); // Debug log
     } else {
       // No token available
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url} (no token)`);
     }
     return config;
   },
@@ -51,6 +53,7 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      isRehydrated: false,
 
       login: async (emailOrUsername: string, password: string) => {
         set({ isLoading: true, error: null });
@@ -161,11 +164,27 @@ export const useAuthStore = create<AuthStore>()(
 
       // refresh token fitur
       onRehydrateStorage: () => (state) => {
-        if (state?.token) {
-          api.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
-          api.defaults.headers.common['access_token'] = state.token;
-        } else {
+        try {
+          if (!state) {
+            useAuthStore.setState({ isRehydrated: true });
+            return;
+          }
 
+          const existingAuth = api.defaults.headers.common['Authorization'];
+          const wanted = state.token ? `Bearer ${state.token}` : undefined;
+          if (wanted && existingAuth !== wanted) {
+            api.defaults.headers.common['Authorization'] = wanted;
+            api.defaults.headers.common['access_token'] = state.token;
+            console.log('[authStore] restored token into axios defaults'); // debug
+          } else {
+            console.log('[authStore] no token to restore or already set');
+          }
+
+          // Signal rehydration complete
+          useAuthStore.setState({ isRehydrated: true });
+        } catch (e) {
+          console.warn('[authStore] onRehydrateStorage err', e);
+          useAuthStore.setState({ isRehydrated: true });
         }
       },
     }

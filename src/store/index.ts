@@ -21,7 +21,7 @@ export type {
 import { useAuthStore } from './authStore';
 import { useThemeStore } from './themeStore';
 import { useAppStore } from './appStore';
-
+export { useSongsStore } from './songsStore';
 // Custom hooks for common use cases
 export const useAuth = () => {
   const authStore = useAuthStore();
@@ -33,6 +33,7 @@ export const useAuth = () => {
     login: authStore.login,
     register: authStore.register,
     logout: authStore.logout,
+
     clearError: authStore.clearError,
   };
 };
