@@ -12,6 +12,7 @@ import {
   FlatList,
   TextInput,
   StatusBar,
+  Animated,
 } from 'react-native';
 import Icon from '../components/Icon';
 import { useAuth, useTheme } from '../store';
@@ -35,10 +36,19 @@ export default function MusicPlayerScreen({ navigation, route }) {
   const [currentSong, setCurrentSong] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
-  const [volume, setVolume] = useState(70);
+  const [volume, setVolume] = useState(70); // Initialize with default
   const [playlist, setPlaylist] = useState([]);
+  const [currentSongIndex, setCurrentSongIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
+
+  // ActiveListener Duration State
+  const [alDuration, setAlDuration] = useState(0); // Duration from ActiveListener (static total)
+  const [alCurrentTime, setAlCurrentTime] = useState(0); // Current playback time (manual countdown)
+  const [songStartTime, setSongStartTime] = useState(null); // When current song started
+  const [isTimerActive, setIsTimerActive] = useState(false); // Whether timer is running
+  const progressAnimation = useRef(new Animated.Value(0)).current;
+  const progressTimer = useRef(null);
 
   // Song search (songsStore)
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,19 +68,183 @@ export default function MusicPlayerScreen({ navigation, route }) {
     next: nextCmd,
     prev: prevCmd,
     sendCommand,
+    setVolume: setVolumeCmd,
+    getCurrentVolume,
+    currentVolume,
     isBusy: isALBusy,
     error: alError,
     ping,
+    status: getALStatus,
   } = useActiveListenerStore();
+
+  // Sync local volume state with store's currentVolume
+  useEffect(() => {
+    if (currentVolume !== undefined && currentVolume !== volume) {
+      setVolume(currentVolume);
+    }
+  }, [currentVolume]);
+
+  // Animate progress bar based on current time and duration
+  const animateProgress = (currentTime, duration) => {
+    if (duration > 0) {
+      const progress = currentTime / duration;
+      Animated.timing(progressAnimation, {
+        toValue: Math.min(progress, 1), // Cap at 1 (100%)
+        duration: 500, // Smooth animation over 500ms
+        useNativeDriver: false,
+      }).start();
+    } else {
+      progressAnimation.setValue(0);
+    }
+  };
+
+  // Start manual progress timer
+  const startProgressTimer = (duration) => {
+    console.log('[Timer] Starting with duration:', duration);
+
+    // Clear any existing timer
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+    }
+
+    const startTime = Date.now();
+    setSongStartTime(startTime);
+    setAlCurrentTime(0);
+    setIsTimerActive(true);
+
+    // Update progress every 100ms for smooth animation
+    progressTimer.current = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
+
+      if (elapsed >= duration) {
+        // Song completed
+        setAlCurrentTime(duration);
+        setIsTimerActive(false);
+        animateProgress(duration, duration);
+        clearInterval(progressTimer.current);
+        console.log('[Timer] Song completed');
+      } else {
+        // Update current time and animate
+        setAlCurrentTime(elapsed);
+        animateProgress(elapsed, duration);
+      }
+    }, 100); // Update every 100ms
+  };
+
+  // Stop manual progress timer
+  const stopProgressTimer = () => {
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+      progressTimer.current = null;
+    }
+    setIsTimerActive(false);
+    setAlCurrentTime(0);
+    setSongStartTime(null);
+    progressAnimation.setValue(0);
+  };
+
+  // Pause manual progress timer
+  const pauseProgressTimer = () => {
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+      progressTimer.current = null;
+    }
+    setIsTimerActive(false);
+  };
+
+  // Resume manual progress timer
+  const resumeProgressTimer = (remainingTime, totalDuration) => {
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+    }
+
+    const resumeStartTime = Date.now();
+    const initialElapsed = totalDuration - remainingTime;
+    setIsTimerActive(true);
+
+    progressTimer.current = setInterval(() => {
+      const additionalElapsed = (Date.now() - resumeStartTime) / 1000;
+      const totalElapsed = initialElapsed + additionalElapsed;
+
+      if (totalElapsed >= totalDuration) {
+        setAlCurrentTime(totalDuration);
+        setIsTimerActive(false);
+        animateProgress(totalDuration, totalDuration);
+        clearInterval(progressTimer.current);
+      } else {
+        setAlCurrentTime(totalElapsed);
+        animateProgress(totalElapsed, totalDuration);
+      }
+    }, 100);
+  };
+
+  // Fetch ActiveListener duration (static value)
+  const fetchActiveListenerDuration = async () => {
+    try {
+      const statusResponse = await getALStatus(uniqueId);
+      const data = statusResponse.data?.data;
+
+      console.log('[Duration] ActiveListener data:', {
+        duration: data?.duration,
+        path: data?.path,
+        command: data?.command,
+        currentSongPath: currentSong?.path
+      });
+
+      if (data && data.duration !== undefined && data.duration > 0) {
+        console.log('[Duration] ActiveListener returned:', data.duration, 'seconds (', Math.floor(data.duration/60), ':', (data.duration%60).toString().padStart(2, '0'), ')');
+        setAlDuration(data.duration);
+        return data.duration;
+      } else {
+        console.log('[Duration] No valid duration from ActiveListener:', data);
+      }
+    } catch (error) {
+      console.log('[Duration] Error fetching from ActiveListener:', error?.message);
+    }
+    return null;
+  };
+
+  // Enhanced periodic progress updates
+  useEffect(() => {
+    return () => {
+      // Cleanup progress timer on unmount
+      if (progressTimer.current) {
+        clearInterval(progressTimer.current);
+      }
+    };
+  }, []);
+
+  // Fetch duration when song changes
+  useEffect(() => {
+    if (currentSong && uniqueId && isRehydrated) {
+      fetchActiveListenerDuration();
+    }
+  }, [currentSong, uniqueId, isRehydrated]);  // Initialize volume and song info from ActiveListener on mount
+  useEffect(() => {
+    if (uniqueId && isRehydrated) {
+      const initializeActiveListener = async () => {
+        try {
+          const statusResponse = await getALStatus(uniqueId);
+          const data = statusResponse.data?.data;
+
+          if (data?.volume !== undefined) {
+            setVolume(data.volume);
+          }
+        } catch (error) {
+          // Silent fail - not critical for initialization
+        }
+      };
+
+      initializeActiveListener();
+    }
+  }, [uniqueId, isRehydrated, getALStatus]);
 
   useEffect(() => {
     // Wait for auth rehydration to complete before making API calls
     if (!isRehydrated) {
-      console.log('[MusicPlayerScreen] Waiting for auth rehydration...');
       return;
     }
 
-    console.log('[MusicPlayerScreen] Auth rehydrated, initializing player...');
     initializePlayer();
     return () => {
       if (updateInterval.current) clearInterval(updateInterval.current);
@@ -107,11 +281,26 @@ export default function MusicPlayerScreen({ navigation, route }) {
         console.log('Status updates failed:', e?.message);
       }
 
-      // Optional: keep ActiveListener alive (ping)
+      // Optional: ping ActiveListener and get current status/volume
       try {
-        await ping(uniqueId); // posts /activelistener/unique/:uniqueId/ping :contentReference[oaicite:6]{index=6}
+        const pingResponse = await ping(uniqueId);
+        console.log('[initializePlayer] Ping response:', pingResponse.data);
+
+        // Update volume if available in ping response
+        if (pingResponse.data?.listener?.volume !== undefined) {
+          setVolume(pingResponse.data.listener.volume);
+        }
       } catch (e) {
-        // non-fatal
+        console.log('ActiveListener ping failed:', e?.message);
+        // Try to get status instead
+        try {
+          const statusResponse = await api.get(`/active-listeners/unique/${uniqueId}/status`);
+          if (statusResponse.data?.data?.volume !== undefined) {
+            setVolume(statusResponse.data.data.volume);
+          }
+        } catch (statusError) {
+          console.log('ActiveListener status failed:', statusError?.message);
+        }
       }
 
     } catch (error) {
@@ -140,35 +329,86 @@ export default function MusicPlayerScreen({ navigation, route }) {
       const boothId = booth.order?.boothId || booth.boothId || booth.id;
       const { data } = await api.get(`/playlists/booth/${boothId}`);
       if (data?.data) {
-        setPlaylist(data.data.songs || []);
-        setCurrentSong(data.data.currentSong || null);
+        // Map playlist songs with proper artist info from Song table
+        const playlistSongs = (data.data.songs || []).map(song => ({
+          ...song,
+          // Ensure artist field is properly mapped from the Song relation
+          artist: song.Song?.artist || song.artist || 'Unknown Artist',
+          title: song.Song?.title || song.title || song.judul || 'Unknown Title',
+          path: song.Song?.path || song.path || null
+        }));
+
+        setPlaylist(playlistSongs);
+        setCurrentSongIndex(data.data.currentSongIndex || 0);
+
+        // Set current song based on index
+        const currentSong = playlistSongs[data.data.currentSongIndex] || null;
+        if (currentSong) {
+          setCurrentSong(currentSong);
+        }
       } else {
         setPlaylist([]);
         setCurrentSong(null);
+        setCurrentSongIndex(0);
       }
     } catch (error) {
       setPlaylist([]);
       setCurrentSong(null);
+      setCurrentSongIndex(0);
       throw error;
     }
   };
 
+
   // Start periodic status updates (keeps your existing /player status)
   const startStatusUpdates = () => {
     updateInterval.current = setInterval(async () => {
+      // Skip all external updates when manual timer is active to avoid interference
+      if (isTimerActive) {
+        console.log('[statusUpdate] Skipping external updates - manual timer active');
+        return;
+      }
+
       try {
+        // Get regular player status
         const boothId = booth.order?.boothId || booth.boothId || booth.id;
         const { data } = await api.get(`/player/booth/${boothId}/status`);
         if (data?.data) {
-          const { isPlaying, currentSong, currentTime, totalTime, volume } = data.data;
-          setIsPlaying(isPlaying || false);
-          setCurrentSong(currentSong || null);
+          const { isPlaying: serverIsPlaying, currentSong, currentTime, totalTime } = data.data;
+
+          setIsPlaying(serverIsPlaying || false);
+
+          // Map current song with proper artist info if available
+          if (currentSong) {
+            const mappedCurrentSong = {
+              ...currentSong,
+              artist: currentSong.Song?.artist || currentSong.artist || 'Unknown Artist',
+              title: currentSong.Song?.title || currentSong.title || currentSong.judul || 'Unknown Title',
+              path: currentSong.Song?.path || currentSong.path || null
+            };
+            // setCurrentSong(mappedCurrentSong);
+          } else {
+            setCurrentSong(null);
+          }
+
           setCurrentTime(currentTime || 0);
           setTotalTime(totalTime || 0);
-          setVolume(volume || 70);
         }
+
+        // Ping ActiveListener for volume only when timer is inactive
+        try {
+          const pingResponse = await ping(uniqueId);
+          if (pingResponse.data?.listener?.volume !== undefined) {
+            setVolume(pingResponse.data.listener.volume);
+          }
+        } catch (pingError) {
+          // Silent fail for volume updates - not critical
+          console.log('[statusUpdate] ActiveListener ping failed:', pingError?.message);
+        }
+
       } catch (error) {
         // avoid spam
+        console.log('[statusUpdate] Player status failed:', error?.message);
       }
     }, 5000);
   };
@@ -179,17 +419,46 @@ export default function MusicPlayerScreen({ navigation, route }) {
 
   const handlePlay = async () => {
     try {
-      await playCmd(uniqueId);
+      const songTitle = currentSong?.title || currentSong?.name || null;
+
+      await playCmd(uniqueId, {
+        path: currentSong?.path,
+        volume,
+        songTitle
+      });
+
       setIsPlaying(true);
+
+      // Start progress timer if we have duration
+      if (alDuration > 0) {
+        if (alCurrentTime > 0) {
+          // Resume from paused position
+          const remainingTime = alDuration - alCurrentTime;
+          resumeProgressTimer(remainingTime, alDuration);
+        } else {
+          // Start from beginning
+          startProgressTimer(alDuration);
+        }
+      } else {
+        // Try to fetch duration and start timer
+        const duration = await fetchActiveListenerDuration();
+        if (duration > 0) {
+          startProgressTimer(duration);
+        }
+      }
     } catch (error) {
+      console.error('[Play] Error:', error);
       Alert.alert('Error', 'Failed to play');
     }
   };
 
   const handlePause = async () => {
     try {
-      await pauseCmd(uniqueId);
+      await pauseCmd(uniqueId, { volume });
       setIsPlaying(false);
+
+      // Pause the progress timer
+      pauseProgressTimer();
     } catch (error) {
       Alert.alert('Error', 'Failed to pause');
     }
@@ -197,58 +466,285 @@ export default function MusicPlayerScreen({ navigation, route }) {
 
   const handleStop = async () => {
     try {
-      await stopCmd(uniqueId);
+      await stopCmd(uniqueId, { volume });
       setIsPlaying(false);
       setCurrentTime(0);
+
+      // Stop the progress timer completely
+      stopProgressTimer();
     } catch (error) {
       Alert.alert('Error', 'Failed to stop');
     }
   };
 
+  // Comprehensive Next Song Function
   const handleNext = async () => {
     try {
-      // attempt to find next song in playlist and send its path
-      const idx = playlist.findIndex((s) => s.id === currentSong?.id);
-      const nextSong = playlist[idx + 1];
-      const extras = nextSong ? { path: nextSong.path || nextSong.file || nextSong.raw?.path || nextSong.id } : {};
-      await nextCmd(uniqueId, extras);
-      await fetchPlaylist(); // refresh playlist/state
+      if (playlist.length === 0) {
+        Alert.alert('No Songs', 'No songs in playlist');
+        return;
+      }
+
+      const boothId = booth.order?.boothId || booth.boothId || booth.id;
+
+      // Update playlist position via API
+      const { data } = await api.put(`/playlists/booth/${boothId}/current-song`, {
+        direction: 'next'
+      });
+
+      if (data?.data) {
+        const { currentSongIndex: newIndex, currentSong, nextSong } = data.data;
+
+        // Update local state
+        setCurrentSongIndex(newIndex);
+        if (currentSong) {
+          const mappedSong = {
+            ...currentSong,
+            artist: currentSong.artist || 'Unknown Artist',
+            title: currentSong.title || 'Unknown Title',
+            path: currentSong.path || null,
+            duration: currentSong.duration || null
+          };
+          setCurrentSong(mappedSong);
+
+          // Reset progress timer first
+          stopProgressTimer();
+
+          // Send next command to ActiveListener with song details
+          await nextCmd(uniqueId, {
+            path: mappedSong.path,
+            volume,
+            duration: mappedSong.duration || nextSong?.duration // Use new song's duration from API
+          });
+
+          // Wait longer for ActiveListener to process the new song, then start timer
+          setTimeout(async () => {
+            // First, try to use the song's own duration data
+            let duration = mappedSong.duration || currentSong.duration;
+
+            if (!duration) {
+              // Try multiple times to get the correct duration from ActiveListener
+              let attempts = 0;
+              const maxAttempts = 3; // Reduced attempts since we have song data
+
+              while (!duration && attempts < maxAttempts) {
+                duration = await fetchActiveListenerDuration();
+                if (!duration) {
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                  attempts++;
+                }
+              }
+            }
+
+            if (duration > 0) {
+              console.log('[Next] Using duration:', duration, 'for song:', mappedSong.title);
+              setAlDuration(duration);
+              if (isPlaying) {
+                startProgressTimer(duration);
+              }
+            } else {
+              console.log('[Next] No valid duration found for song:', mappedSong.title);
+            }
+
+            // Auto-play the next song
+            if (isPlaying) {
+              await playCmd(uniqueId, {
+                path: mappedSong.path,
+                volume
+              });
+            }
+          }, 300); // Reduced delay since we're primarily using song data
+
+          console.log('[Next] Moved to:', mappedSong.title);
+        }
+      }
+
+      // Refresh playlist to ensure sync
+      setTimeout(() => fetchPlaylist(), 500);
     } catch (error) {
-      Alert.alert('Error', 'Failed to skip to next');
+      console.error('[Next] Error:', error);
+      Alert.alert('Error', 'Failed to skip to next song');
     }
   };
 
+  // Comprehensive Previous Song Function
   const handlePrevious = async () => {
     try {
-      const idx = playlist.findIndex((s) => s.id === currentSong?.id);
-      const prevSong = playlist[idx - 1];
-      const extras = prevSong ? { path: prevSong.path || prevSong.file || prevSong.raw?.path || prevSong.id } : {};
-      await prevCmd(uniqueId, extras);
-      await fetchPlaylist();
+      if (playlist.length === 0) {
+        Alert.alert('No Songs', 'No songs in playlist');
+        return;
+      }
+
+      const boothId = booth.order?.boothId || booth.boothId || booth.id;
+
+      // Update playlist position via API
+      const { data } = await api.put(`/playlists/booth/${boothId}/current-song`, {
+        direction: 'prev'
+      });
+
+      if (data?.data) {
+        const { currentSongIndex: newIndex, currentSong, nextSong } = data.data;
+
+        // Update local state
+        setCurrentSongIndex(newIndex);
+        if (currentSong) {
+          const mappedSong = {
+            ...currentSong,
+            artist: currentSong.artist || 'Unknown Artist',
+            title: currentSong.title || 'Unknown Title',
+            path: currentSong.path || null,
+            duration: currentSong.duration || null
+          };
+          setCurrentSong(mappedSong);
+
+          // Send prev command to ActiveListener with song details
+          await prevCmd(uniqueId, {
+            path: mappedSong.path,
+            volume,
+            duration: mappedSong.duration // Send the new song's duration
+          });
+
+          // Reset progress timer for new song
+          stopProgressTimer();
+
+          // Wait for ActiveListener to process the new song, then get duration
+          setTimeout(async () => {
+            // First, try to use the song's own duration data
+            let duration = mappedSong.duration || currentSong.duration;
+
+            if (!duration) {
+              // Try multiple times to get the correct duration from ActiveListener
+              let attempts = 0;
+              const maxAttempts = 3; // Reduced attempts since we have song data
+
+              while (!duration && attempts < maxAttempts) {
+                duration = await fetchActiveListenerDuration();
+                if (!duration) {
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                  attempts++;
+                }
+              }
+            }
+
+            if (duration > 0) {
+              console.log('[Previous] Using duration:', duration, 'for song:', mappedSong.title);
+              setAlDuration(duration);
+              if (isPlaying) {
+                startProgressTimer(duration);
+              }
+            } else {
+              console.log('[Previous] No valid duration found for song:', mappedSong.title);
+            }
+
+            // Auto-play the previous song
+            if (isPlaying) {
+              await playCmd(uniqueId, {
+                path: mappedSong.path,
+                volume
+              });
+            }
+          }, 300); // Reduced delay since we're primarily using song data
+
+          console.log('[Previous] Moved to:', mappedSong.title);
+        }
+      }
+
+      // Refresh playlist to ensure sync
+      setTimeout(() => fetchPlaylist(), 500);
     } catch (error) {
-      Alert.alert('Error', 'Failed to go to previous');
+      console.error('[Previous] Error:', error);
+      Alert.alert('Error', 'Failed to go to previous song');
+    }
+  };
+
+  // Play specific song by index
+  const handlePlaySongByIndex = async (index) => {
+    try {
+      if (index < 0 || index >= playlist.length) {
+        Alert.alert('Error', 'Invalid song index');
+        return;
+      }
+
+      const boothId = booth.order?.boothId || booth.boothId || booth.id;
+
+      // Update playlist position via API
+      const { data } = await api.put(`/playlists/booth/${boothId}/current-song`, {
+        direction: 'set',
+        songIndex: index
+      });
+
+      if (data?.data) {
+        const { currentSongIndex: newIndex, currentSong } = data.data;
+
+        // Update local state
+        setCurrentSongIndex(newIndex);
+        if (currentSong) {
+          const mappedSong = {
+            ...currentSong,
+            artist: currentSong.artist || 'Unknown Artist',
+            title: currentSong.title || 'Unknown Title',
+            path: currentSong.path || null
+          };
+          setCurrentSong(mappedSong);
+
+          // Play the selected song
+          await playCmd(uniqueId, {
+            path: mappedSong.path,
+            volume
+          });
+
+          setIsPlaying(true);
+
+          // Reset progress timer and start for new song
+          stopProgressTimer();
+          const duration = await fetchActiveListenerDuration();
+          if (duration > 0) {
+            console.log('[PlayByIndex] Starting timer for selected song with duration:', duration);
+            startProgressTimer(duration);
+          }
+
+          console.log('[PlayByIndex] Playing song at index:', {
+            index: newIndex,
+            title: mappedSong.title,
+            duration: duration
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[PlayByIndex] Error:', error);
+      Alert.alert('Error', 'Failed to play selected song');
     }
   };
 
   // ----- Volume & playlist keep existing /player routes -----
   const handleVolumeChange = async (newVolume) => {
     try {
-      await api.post(`/player/booth/${booth.order?.boothId || booth.boothId}/volume`, {
-        volume: newVolume
-      });
+      // Use ActiveListener volume command instead of old player API
+      await setVolumeCmd(uniqueId, newVolume);
+      // Volume will be updated via the store's currentVolume sync
+      // But also update local state immediately for better UX
       setVolume(newVolume);
     } catch (error) {
+      console.error('Volume change failed:', error);
       Alert.alert('Error', 'Failed to change volume');
     }
   };
 
   const handlePlaySong = async (song) => {
     try {
-      // determine a path string that your backend/player expects
       const path = song.path || song.file || song.raw?.path || song.id;
-      await playCmd(uniqueId, { path }); // <-- send path in body
+      const songTitle = song.title || song.name || 'Unknown Song';
+
+      await playCmd(uniqueId, {
+        path,
+        volume,
+        songTitle
+      });
+
       setCurrentSong(song);
       setIsPlaying(true);
+
+      console.log('[PlaySong] Playing:', { songTitle });
     } catch (error) {
       Alert.alert('Error', 'Failed to play selected song');
     }
@@ -260,6 +756,7 @@ export default function MusicPlayerScreen({ navigation, route }) {
         songId: song.id
       });
       await fetchPlaylist();
+
       Alert.alert('Success', `"${song.title}" added to playlist`);
     } catch (error) {
       Alert.alert('Error', 'Failed to add song to playlist');
@@ -305,6 +802,7 @@ export default function MusicPlayerScreen({ navigation, route }) {
 
   // Filter local songs list (optional extra filter on top of server search)
   const filteredSongs = availableSongs.filter((song) => {
+    // console.log('BABIIIIIIII', {song});
     const q = (searchQuery || '').toLowerCase();
     return song.title?.toLowerCase().includes(q) || song.artist?.toLowerCase().includes(q);
   });
@@ -380,8 +878,12 @@ export default function MusicPlayerScreen({ navigation, route }) {
         <View style={[styles.currentSongCard, { backgroundColor: currentTheme.card }]}>
           {currentSong ? (
             <>
-              <Text style={[styles.currentSongTitle, { color: currentTheme.text }]}>{currentSong.title}</Text>
-              <Text style={[styles.currentSongArtist, { color: currentTheme.textSecondary }]}>{currentSong.artist}</Text>
+              <Text style={[styles.currentSongTitle, { color: currentTheme.text }]}>
+                {currentSong.title || currentSong.Song?.title || 'Unknown Title'}
+              </Text>
+              <Text style={[styles.currentSongArtist, { color: currentTheme.textSecondary }]}>
+                {currentSong.Song?.artist || currentSong.artist || 'Unknown Artist'}
+              </Text>
 
               {/* Progress Bar */}
               <View style={[styles.progressContainer, { backgroundColor: currentTheme.inputBackground }]}>
@@ -390,15 +892,15 @@ export default function MusicPlayerScreen({ navigation, route }) {
                     styles.progressBar,
                     {
                       backgroundColor: currentTheme.primary,
-                      width: totalTime > 0 ? `${(currentTime / totalTime) * 100}%` : '0%',
+                      width: alDuration > 0 ? `${(alCurrentTime / alDuration) * 100}%` : '0%',
                     },
                   ]}
                 />
               </View>
 
               <View style={styles.timeContainer}>
-                <Text style={[styles.timeText, { color: currentTheme.textSecondary }]}>{formatTime(currentTime)}</Text>
-                <Text style={[styles.timeText, { color: currentTheme.textSecondary }]}>{formatTime(totalTime)}</Text>
+                <Text style={[styles.timeText, { color: currentTheme.textSecondary }]}>{formatTime(alCurrentTime)}</Text>
+                <Text style={[styles.timeText, { color: currentTheme.textSecondary }]}>{formatTime(alDuration)}</Text>
               </View>
             </>
           ) : (
@@ -413,29 +915,51 @@ export default function MusicPlayerScreen({ navigation, route }) {
 
         {/* Player Controls */}
         <View style={[styles.controlsCard, { backgroundColor: currentTheme.card }]}>
-          <View style={styles.mainControls}>
+          {/* Navigation Controls */}
+          <View style={styles.navigationControls}>
             <TouchableOpacity
-              style={[styles.controlButton, { backgroundColor: currentTheme.inputBackground, opacity: isALBusy ? 0.6 : 1 }]}
+              style={[styles.navButton, {
+                backgroundColor: currentTheme.inputBackground,
+                opacity: (playlist.length === 0 || isALBusy) ? 0.3 : 1
+              }]}
               onPress={handlePrevious}
-              disabled={isALBusy}
+              disabled={playlist.length === 0 || isALBusy}
             >
-              <Text style={[styles.controlIcon, { color: currentTheme.text }]}>⏮️</Text>
+              <Text style={[styles.navButtonText, { color: currentTheme.text }]}>⏮️</Text>
             </TouchableOpacity>
 
+            <View style={styles.playlistInfo}>
+              <Text style={[styles.positionText, { color: currentTheme.textSecondary }]}>
+                {playlist.length > 0 ? `${(currentSongIndex || 0) + 1} / ${playlist.length}` : '0 / 0'}
+              </Text>
+
+              {playlist.length > 0 && playlist[currentSongIndex + 1] && (
+                <Text style={[styles.nextSongText, { color: currentTheme.textSecondary }]} numberOfLines={1}>
+                  Next: {playlist[currentSongIndex + 1]?.title || 'Unknown'}
+                </Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.navButton, {
+                backgroundColor: currentTheme.inputBackground,
+                opacity: (playlist.length === 0 || isALBusy) ? 0.3 : 1
+              }]}
+              onPress={handleNext}
+              disabled={playlist.length === 0 || isALBusy}
+            >
+              <Text style={[styles.navButtonText, { color: currentTheme.text }]}>⏭️</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Main Play/Pause Control */}
+          <View style={styles.mainControls}>
             <TouchableOpacity
               style={[styles.playButton, { backgroundColor: currentTheme.primary, opacity: isALBusy ? 0.7 : 1 }]}
               onPress={isPlaying ? handlePause : handlePlay}
               disabled={isALBusy}
             >
               <Text style={[styles.playIcon, { color: currentTheme.buttonText }]}>{isPlaying ? '⏸️' : '▶️'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.controlButton, { backgroundColor: currentTheme.inputBackground, opacity: isALBusy ? 0.6 : 1 }]}
-              onPress={handleNext}
-              disabled={isALBusy}
-            >
-              <Text style={[styles.controlIcon, { color: currentTheme.text }]}>⏭️</Text>
             </TouchableOpacity>
           </View>
 
@@ -514,29 +1038,80 @@ export default function MusicPlayerScreen({ navigation, route }) {
             <FlatList
               data={playlist}
               keyExtractor={(item, index) => `playlist-${index}`}
-              renderItem={({ item }) => (
-                <View
+              renderItem={({ item, index }) => (
+                <TouchableOpacity
                   style={[
                     styles.playlistItem,
                     {
-                      backgroundColor: currentSong?.id === item.id ? currentTheme.primary + '20' : currentTheme.card,
+                      backgroundColor: index === currentSongIndex ? currentTheme.primary + '20' : currentTheme.card,
                       borderColor: currentTheme.border,
+                      borderWidth: index === currentSongIndex ? 2 : 1,
                     },
                   ]}
+                  onPress={() => handlePlaySongByIndex(index)}
                 >
+                  <View style={styles.playlistPositionIndicator}>
+                    <View style={styles.positionNumberContainer}>
+                      <Text style={[styles.playlistPosition, {
+                        color: index === currentSongIndex ? currentTheme.primary : currentTheme.textSecondary
+                      }]}>
+                        {index + 1}
+                      </Text>
+                    </View>
+
+                    {/* Animated Progress Ring for Current Song */}
+                    {index === currentSongIndex && alDuration > 0 && (
+                      <View style={styles.progressRingContainer}>
+                        <View style={[styles.progressRingBackground, { borderColor: currentTheme.inputBackground }]} />
+                        <Animated.View
+                          style={[
+                            styles.progressRingForeground,
+                            {
+                              borderColor: currentTheme.primary,
+                              transform: [{
+                                rotate: progressAnimation.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: ['0deg', '360deg'],
+                                })
+                              }]
+                            }
+                          ]}
+                        />
+                        <View style={styles.progressRingCenter}>
+                          <Text style={[styles.progressTimeText, { color: currentTheme.primary }]}>
+                            {formatTime(alCurrentTime)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Duration Display for Current Song */}
+                    {index === currentSongIndex && alDuration > 0 && (
+                      <Text style={[styles.durationText, { color: currentTheme.textSecondary }]}>
+                        / {formatTime(alDuration)}
+                      </Text>
+                    )}
+                  </View>
                   <View style={styles.playlistItemInfo}>
                     <Text style={[styles.playlistItemTitle, { color: currentTheme.text }]}>
-                      {currentSong?.id === item.id && '🎵 '}
+                      {index === currentSongIndex && '🎵 '}
                       {item.title}
                     </Text>
                     <Text style={[styles.playlistItemArtist, { color: currentTheme.textSecondary }]}>{item.artist}</Text>
+                    {index === currentSongIndex && (
+                      <Text style={[styles.nowPlayingIndicator, { color: currentTheme.primary }]}>Now Playing</Text>
+                    )}
                   </View>
                   <View style={styles.playlistItemActions}>
                     <TouchableOpacity
-                      style={[styles.playlistActionButton, { backgroundColor: currentTheme.primary }]}
-                      onPress={() => handlePlaySong(item)}
+                      style={[styles.playlistActionButton, {
+                        backgroundColor: index === currentSongIndex ? currentTheme.success : currentTheme.primary
+                      }]}
+                      onPress={() => handlePlaySongByIndex(index)}
                     >
-                      <Text style={[styles.playlistActionText, { color: currentTheme.buttonText }]}>▶️</Text>
+                      <Text style={[styles.playlistActionText, { color: currentTheme.buttonText }]}>
+                        {index === currentSongIndex ? '🎤' : '▶️'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.playlistActionButton, { backgroundColor: currentTheme.error }]}
@@ -545,7 +1120,7 @@ export default function MusicPlayerScreen({ navigation, route }) {
                       <Text style={[styles.playlistActionText, { color: currentTheme.buttonText }]}>🗑️</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
+                </TouchableOpacity>
               )}
             />
           )}
@@ -678,6 +1253,15 @@ const styles = StyleSheet.create({
   },
   currentSongTitle: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 8 },
   currentSongArtist: { fontSize: 18, textAlign: 'center', marginBottom: 20 },
+  nextSongContainer: {
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.05)'
+  },
+  nextSongLabel: { fontSize: 14, fontStyle: 'italic' },
   progressContainer: { height: 6, borderRadius: 3, marginBottom: 12 },
   progressBar: { height: '100%', borderRadius: 3 },
   timeContainer: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -696,6 +1280,44 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   mainControls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 16, gap: 16 },
+
+  // Navigation Controls Styles
+  navigationControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 10
+  },
+  navButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  navButtonText: { fontSize: 24 },
+  playlistInfo: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 16
+  },
+  positionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4
+  },
+  nextSongText: {
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 150
+  },
+
   controlButton: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
   controlIcon: { fontSize: 24 },
   playButton: { width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center' },
@@ -729,10 +1351,76 @@ const styles = StyleSheet.create({
   emptyPlaylistText: { fontSize: 18, marginBottom: 20, textAlign: 'center' },
   addSongsButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
   addSongsButtonText: { fontSize: 16, fontWeight: '600' },
-  playlistItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1 },
+  playlistItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderRadius: 8, marginHorizontal: 4, marginVertical: 2 },
+  playlistPositionIndicator: {
+    width: 60, // Increased width to accommodate progress ring
+    alignItems: 'center',
+    marginRight: 12,
+    position: 'relative'
+  },
+  positionNumberContainer: {
+    alignItems: 'center',
+    marginBottom: 4
+  },
+  playlistPosition: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  // Animated Progress Ring Styles
+  progressRingContainer: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginVertical: 4
+  },
+  progressRingBackground: {
+    position: 'absolute',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 3,
+    opacity: 0.3
+  },
+  progressRingForeground: {
+    position: 'absolute',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  progressRingCenter: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent'
+  },
+  progressTimeText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  durationText: {
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 2
+  },
   playlistItemInfo: { flex: 1, paddingRight: 12 },
   playlistItemTitle: { fontSize: 16, fontWeight: '600' },
   playlistItemArtist: { fontSize: 14, marginTop: 2 },
+  nowPlayingIndicator: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 4,
+    textTransform: 'uppercase'
+  },
   playlistItemActions: { flexDirection: 'row', gap: 8 },
   playlistActionButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   playlistActionText: { fontSize: 14, fontWeight: '600' },
